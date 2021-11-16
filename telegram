@@ -59,6 +59,8 @@ function help {
 	echo "    -N               Diables notifications on clients. Users will receive a notification with no sound."
 	echo "                     Can also be set in config as TELEGRAM_DISABLE_NOTIFICATION=true (see ENVIRONMENT)"
 	echo "    -m               Outputs the last received message. Format is: <Message ID> <Sender ID> <Chat ID> <Text>"
+	echo "    -w               Wait for WAN link."
+	echo "                     If this is not set and WAN is down, the program will not try to contact telegram and will exit."
 	echo
 	echo "DEBUGGING OPTIONS are:"
 	echo "    -v               Display lots of more or less useful information."
@@ -84,6 +86,32 @@ function help {
 function version {
 	echo "telegram.sh version $VERSION"
 	echo "by Fabian Schlenz"
+}
+
+function is_wan_up {
+	if ping -q -c 1 google.com > /dev/null; then
+        return 0
+	fi
+    return 1
+}
+
+
+function curl {
+
+	if ! is_wan_up; then
+		if "${WAIT_WAN:-false}"; then
+			echo "Waiting for WAN link..."
+			sleep 10
+			while ! is_wan_up; do
+				sleep 10
+			done
+		else
+			echo "No WAN link available. Exiting..."
+			exit
+		fi
+	fi
+
+	command curl "$@"
 }
 
 function list_chats {
@@ -203,7 +231,7 @@ function escapeMarkdown {
 	echo "$res"
 }
 
-while getopts "t:c:i:f:MHCrhlvjnRmDNT:" opt; do
+while getopts "t:c:i:f:MHCrhlvjnRmDNT:w" opt; do
 	case $opt in
 		t)
 			TOKEN="$OPTARG"
@@ -257,6 +285,9 @@ while getopts "t:c:i:f:MHCrhlvjnRmDNT:" opt; do
 			;;
 		T)
 			TITLE="$OPTARG"
+			;;
+		w)
+			WAIT_WAN=true
 			;;
 		?|h)
 			help
