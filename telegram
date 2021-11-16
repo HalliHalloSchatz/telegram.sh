@@ -66,6 +66,7 @@ function help {
 	echo "    -n               Dry-run - don't send messages, only print them on screen."
 	echo
 	echo "Message can be '-', in that case STDIN will be used."
+	echo "If multiple messages are passed in, they will be printed over separate lines."
 	echo
 	echo "ENVIRONMENT"
 	echo "    TOKEN and CHAT_ID are required. You can set them in four different ways:"
@@ -327,7 +328,8 @@ if [ "$ACTION" = "receive_message" ]; then
 fi
 
 shift $((OPTIND - 1))
-TEXT="$1"
+printf -v TEXT '%s\n' "$@"
+TEXT="${TEXT%$'\n'}"
 log "Text: $TEXT"
 
 [ "$TEXT" = "-" ] && TEXT=$(</dev/stdin)
