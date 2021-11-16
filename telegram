@@ -89,7 +89,7 @@ function version {
 }
 
 function is_wan_up {
-	if ping -q -c 1 google.com > /dev/null; then
+	if ping -q -c 1 google.com > /dev/null || ping -q -c 1 amazon.com > /dev/null; then
         return 0
 	fi
     return 1
