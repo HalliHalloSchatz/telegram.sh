@@ -234,7 +234,7 @@ function escapeMarkdown {
 	echo "$res"
 }
 
-while getopts "t:c:i:f:MHCrhlvjnRmDNT:w" opt; do
+while getopts "t:c:i:f:MHCrhlvjnRmDNT:wW" opt; do
 	case $opt in
 		t)
 			TOKEN="$OPTARG"
