@@ -61,6 +61,7 @@ function help {
 	echo "    -m               Outputs the last received message. Format is: <Message ID> <Sender ID> <Chat ID> <Text>"
 	echo "    -w               Wait for WAN link."
 	echo "                     If this is not set and WAN is down, the program will not try to contact telegram and will exit."
+	echo "    -W               Do not check WAN link."
 	echo
 	echo "DEBUGGING OPTIONS are:"
 	echo "    -v               Display lots of more or less useful information."
@@ -90,24 +91,26 @@ function version {
 
 function is_wan_up {
 	if ping -q -c 1 google.com > /dev/null || ping -q -c 1 amazon.com > /dev/null; then
-        return 0
+		return 0
 	fi
-    return 1
+	return 1
 }
 
 
 function curl {
 
-	if ! is_wan_up; then
-		if "${WAIT_WAN:-false}"; then
-			echo "Waiting for WAN link..."
-			sleep 10
-			while ! is_wan_up; do
+	if "${CHECK_WAN:-true}"; then
+		if ! is_wan_up; then
+			if "${WAIT_WAN:-false}"; then
+				echo "Waiting for WAN link..."
 				sleep 10
-			done
-		else
-			echo "No WAN link available. Exiting..."
-			exit
+				while ! is_wan_up; do
+					sleep 10
+				done
+			else
+				echo "No WAN link available. Exiting..."
+				exit
+			fi
 		fi
 	fi
 
@@ -288,6 +291,9 @@ while getopts "t:c:i:f:MHCrhlvjnRmDNT:w" opt; do
 			;;
 		w)
 			WAIT_WAN=true
+			;;
+		W)
+			CHECK_WAN=false
 			;;
 		?|h)
 			help
