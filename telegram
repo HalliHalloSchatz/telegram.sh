@@ -91,8 +91,8 @@ function version {
 
 function is_wan_up {
 	# if ping -q -c 1 google.com > /dev/null || ping -q -c 1 amazon.com > /dev/null; then
-	if nc -d1 -zw1 google.com 443 > /dev/null \
-	|| nc -d1 -zw1 amazon.com 443 > /dev/null; then
+	if nc -dzw1 google.com 443 > /dev/null \
+	|| nc -dzw1 amazon.com 443 > /dev/null; then
 		return 0
 	fi
 	return 1
