@@ -59,6 +59,9 @@ function help {
 	echo "    -N               Diables notifications on clients. Users will receive a notification with no sound."
 	echo "                     Can also be set in config as TELEGRAM_DISABLE_NOTIFICATION=true (see ENVIRONMENT)"
 	echo "    -m               Outputs the last received message. Format is: <Message ID> <Sender ID> <Chat ID> <Text>"
+	echo "    -w               Wait for WAN link."
+	echo "                     If this is not set and WAN is down, the program will not try to contact telegram and will exit."
+	echo "    -W               Do not check WAN link."
 	echo
 	echo "DEBUGGING OPTIONS are:"
 	echo "    -v               Display lots of more or less useful information."
@@ -66,6 +69,7 @@ function help {
 	echo "    -n               Dry-run - don't send messages, only print them on screen."
 	echo
 	echo "Message can be '-', in that case STDIN will be used."
+	echo "If multiple messages are passed in, they will be printed over separate lines."
 	echo
 	echo "ENVIRONMENT"
 	echo "    TOKEN and CHAT_ID are required. You can set them in four different ways:"
@@ -85,9 +89,39 @@ function version {
 	echo "by Fabian Schlenz"
 }
 
+function is_wan_up {
+	# if ping -q -c 1 google.com > /dev/null || ping -q -c 1 amazon.com > /dev/null; then
+	if nc -dzw1 google.com 443 > /dev/null \
+	|| nc -dzw1 amazon.com 443 > /dev/null; then
+		return 0
+	fi
+	return 1
+}
+
+
+function curl {
+
+	if "${CHECK_WAN:-true}"; then
+		if ! is_wan_up; then
+			if "${WAIT_WAN:-false}"; then
+				echo "Waiting for WAN link..."
+				sleep 10
+				while ! is_wan_up; do
+					sleep 10
+				done
+			else
+				echo "No WAN link available. Exiting..."
+				exit
+			fi
+		fi
+	fi
+
+	command curl "$@"
+}
+
 function list_chats {
 	log "$URL$TOKEN"
-	response=`curl $CURL_OPTIONS $URL$TOKEN/getUpdates`
+	response="$(curl $CURL_OPTIONS "$URL$TOKEN"/getUpdates)"
 	log "$response"
 
 	if [ "$HAS_JQ" = true ]; then
@@ -111,7 +145,7 @@ function list_chats {
 		echo "If there are no chats listed or the chat you are looking for isn't there, try again after"
 		echo "sending a message to your bot via telegram."
 		echo
-		echo $response
+		echo "$response"
 	fi
 }
 
@@ -121,9 +155,9 @@ function receive_message {
 		exit 1
 	fi
 	
-	result=`curl $CURL_OPTIONS $URL$TOKEN/getUpdates?allowed_updates=message`
+	result="$(curl $CURL_OPTIONS "$URL$TOKEN/getUpdates?allowed_updates=message")"
 	log "$result"
-	if [ "`jq '.result' <<< "$result"`" = "[]" ]; then
+	if [ "$(jq '.result' <<< "$result")" = "[]" ]; then
 		echo "No recent messages."
 		exit 1
 	fi
@@ -139,7 +173,7 @@ function receive_file {
 		exit 1
 	fi
 
-	result=`curl $CURL_OPTIONS $URL$TOKEN/getUpdates?allowed_updates=message`
+	result="$(curl $CURL_OPTIONS "$URL$TOKEN/getUpdates?allowed_updates=message")"
 	log "$result"
 	# {"ok":true,"result":[
 	#   {
@@ -150,30 +184,30 @@ function receive_file {
 	#       "chat":{"id":15773,"first_name":"Fabian","last_name":"Schlenz","username":"fabianonline","type":"private"},
 	#       "date":1526564127,
 	#       "document":{"file_name":"desktop.ini","file_id":"BQAav-HkXugI","file_size":282}}}]}
-	file_id=`jq -r '.result[-1].message.document.file_id' <<< "$result"`
+	file_id="$(jq -r '.result[-1].message.document.file_id' <<< "$result")"
 	log "file_id: $file_id"
 	if [ "$file_id" == "null" ]; then
 		echo "Last message received apparently didn't contain a file. Aborting."
 		exit 1
 	fi
-	file_name=`jq -r '.result[-1].message.document.file_name' <<< "$result"`
+	file_name="$(jq -r '.result[-1].message.document.file_name' <<< "$result")"
 	log "file_name: $file_name"
-	result=`curl $CURL_OPTIONS $URL$TOKEN/getFile?file_id=$file_id`
-	log $result
+	result="$(curl $CURL_OPTIONS "$URL$TOKEN/getFile?file_id=$file_id")"
+	log "$result"
 	# {"ok":true,"result":{"file_id":"BQAav-HkXugI","file_size":282,"file_path":"documents/file_271.ini"}}
-	path=`jq -r '.result.file_path' <<< "$result"`
+	path="$(jq -r '.result.file_path' <<< "$result")"
 	log "path: $path"
 	if [ "$path" == "null" ]; then
 		echo "Could not parse telegram's response to getFile. Aborting."
 		exit 1
 	fi
-	file_name="`date +%s`_$file_name"
+	file_name="$(date +%s)_$file_name"
 	log "file_name: $file_name"
 	if [ -e "$file_name" ]; then
 		echo "File $file_name already exists. This is unexpected, so I'm quitting now."
 		exit 1
 	fi
-	curl $FILE_URL$TOKEN/$path --output "$file_name"
+	curl "$FILE_URL$TOKEN/$path" --output "$file_name"
 	echo "File downloaded as $file_name"
 }
 
@@ -202,7 +236,7 @@ function escapeMarkdown {
 	echo "$res"
 }
 
-while getopts "t:c:i:f:MHCrhlvjnRmDNT:" opt; do
+while getopts "t:c:i:f:MHCrhlvjnRmDNT:wW" opt; do
 	case $opt in
 		t)
 			TOKEN="$OPTARG"
@@ -256,6 +290,12 @@ while getopts "t:c:i:f:MHCrhlvjnRmDNT:" opt; do
 			;;
 		T)
 			TITLE="$OPTARG"
+			;;
+		w)
+			WAIT_WAN=true
+			;;
+		W)
+			CHECK_WAN=false
 			;;
 		?|h)
 			help
@@ -328,7 +368,8 @@ if [ "$ACTION" = "receive_message" ]; then
 fi
 
 shift $((OPTIND - 1))
-TEXT="$1"
+printf -v TEXT '%s\n' "$@"
+TEXT="${TEXT%$'\n'}"
 log "Text: $TEXT"
 
 [ "$TEXT" = "-" ] && TEXT=$(</dev/stdin)
@@ -341,7 +382,7 @@ fi
 
 if [ $CRON_MODE -eq 1 ]; then
 	ONLY_COMMANDS=1
-	while read line; do
+	while read -r line; do
 		if [ "${line:0:2}" = "+ " ]; then
 			ONLY_COMMANDS=0
 		fi
@@ -426,7 +467,7 @@ for id in "${CHATS[@]}"; do
 		status=0
 		response='{"ok": true}'
 	else
-		response=`curl $MY_CURL_OPTIONS <<< "$TEXT"`
+		response="$(curl $MY_CURL_OPTIONS <<< "$TEXT")"
 		status=$?
 	fi
 	log "Response was: $response"
@@ -438,7 +479,7 @@ for id in "${CHATS[@]}"; do
 	fi
 
 	if [ "$HAS_JQ" = true ]; then
-		if [ "`jq -r '.ok' <<< "$response"`" != "true" ]; then
+		if [ "$(jq -r '.ok' <<< "$response")" != "true" ]; then
 			echo "Telegram reported following error:"
 			jq -r '"\(.error_code): \(.description)"' <<< "$response"
 			echo "Quitting."
@@ -447,7 +488,7 @@ for id in "${CHATS[@]}"; do
 	else
 		if [[ "$response" != '{"ok":true'* ]]; then
 			echo "Telegram reported an error:"
-			echo $response
+			echo "$response"
 			echo "Quitting."
 			exit 1
 		fi
